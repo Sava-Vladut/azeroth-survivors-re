@@ -12,8 +12,9 @@ use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use super::hud::{self, DIM_GREY, GOLD_TONE};
 use crate::sound::SoundConfig;
 
-/// The interface sizes the button cycles through, times the reference's 768-unit-tall layout.
-pub(super) const UI_SCALES: [f32; 6] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5];
+/// The interface sizes the button cycles through, times the reference's 768-unit-tall layout. Past
+/// 110% the canvas gets too short for the pick screen's zone frame (657 tall), so it stops there.
+pub(super) const UI_SCALES: [f32; 4] = [0.75, 0.9, 1.0, 1.1];
 
 /// What the sound sliders start at when the page has nothing saved: the reference's own
 /// registrations ([`SoundConfig`]'s defaults).
@@ -170,6 +171,11 @@ impl Settings {
     }
 
     fn to_text(&self) -> String {
+        self.to_text_with(self.polish)
+    }
+
+    /// The file's text with `polish` written as given, so a session override is not saved.
+    fn to_text_with(&self, polish: bool) -> String {
         let b = |v: bool| u8::from(v);
         let mut s = format!(
             "camera_sens={:.2}\ninvert_y={}\nzoom_speed={:.2}\ninvert_zoom={}\nui_scale={:.2}\npolish={}\n",
@@ -178,7 +184,7 @@ impl Settings {
             self.zoom_speed,
             b(self.invert_zoom),
             self.ui_scale,
-            b(self.polish),
+            b(polish),
         );
         for (key, v) in [
             ("master", self.master),
@@ -237,14 +243,20 @@ fn path() -> Option<std::path::PathBuf> {
     crate::local_state::home().map(|h| h.join("survivors-settings.txt"))
 }
 
+/// The polish the file held when `?grade=0` overrode it for this session, so saving other
+/// changes does not turn the saved choice off for good.
+#[derive(Resource, Default)]
+struct SavedPolish(Option<bool>);
+
 /// Read the saved settings once at startup. A missing or unreadable file keeps the defaults.
-pub(super) fn load(mut settings: ResMut<Settings>) {
+fn load(mut settings: ResMut<Settings>, mut saved: ResMut<SavedPolish>) {
     let Some(text) = path().and_then(|p| crate::local_state::read_to_string(&p).ok()) else {
         return;
     };
     let mut loaded = Settings::parse(&text);
     // `?grade=0` is explicit for this session and outranks the saved choice.
     if crate::webenv::var("WOW_GRADE").is_some_and(|v| v == "0") {
+        saved.0 = Some(loaded.polish);
         loaded.polish = false;
     }
     *settings = loaded;
@@ -253,6 +265,7 @@ pub(super) fn load(mut settings: ResMut<Settings>) {
 /// Save once the player lets go of the mouse, not on every frame of a slider drag.
 fn save(
     settings: Res<Settings>,
+    saved: Res<SavedPolish>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut seen: Local<bool>,
     mut dirty: Local<bool>,
@@ -267,7 +280,8 @@ fn save(
     if *dirty && !mouse.pressed(MouseButton::Left) {
         *dirty = false;
         if let Some(p) = path() {
-            let _ = crate::local_state::write_atomic(&p, &settings.to_text());
+            let text = settings.to_text_with(saved.0.unwrap_or(settings.polish));
+            let _ = crate::local_state::write_atomic(&p, &text);
         }
     }
 }
@@ -332,7 +346,13 @@ fn row(
             ..default()
         })
         .with_children(|r| {
-            r.spawn(hud::text_bundle(f, label, 18.0, Color::WHITE));
+            r.spawn((
+                Node {
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                hud::text_bundle(f, label, 18.0, Color::WHITE),
+            ));
             build(r);
         });
 }
@@ -455,7 +475,7 @@ pub(super) fn spawn_panel(commands: &mut Commands, f: &Handle<Font>) {
         .with_children(|root| {
             root.spawn((
                 Node {
-                    width: Val::Px(540.0),
+                    width: Val::Px(620.0),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     row_gap: Val::Px(6.0),
@@ -634,6 +654,7 @@ fn hover(mut buttons: Query<(&Interaction, &mut BackgroundColor), (With<PanelBtn
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Settings>()
         .init_resource::<SettingsOpen>()
+        .init_resource::<SavedPolish>()
         .add_systems(Startup, load)
         .add_systems(
             Update,
@@ -652,7 +673,7 @@ mod tests {
             invert_y: true,
             zoom_speed: 0.5,
             invert_zoom: true,
-            ui_scale: 1.25,
+            ui_scale: 1.1,
             polish: false,
             master: Some(0.8),
             music: None,
@@ -695,7 +716,7 @@ mod tests {
         assert_eq!(s.ui_scale, 1.0);
         s.press(Field::UiScale);
         assert_eq!(s.ui_scale, 1.1);
-        s.ui_scale = 1.5;
+        s.ui_scale = 1.1;
         s.press(Field::UiScale);
         assert_eq!(s.ui_scale, 0.75);
     }

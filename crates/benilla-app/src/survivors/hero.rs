@@ -348,7 +348,7 @@ pub(super) fn place_camera(
 ) {
     // `C` unlocks the camera to swing and tilt; locking it again snaps back to the top-down view,
     // so world-relative WASD lines up with the screen again.
-    if keys.just_pressed(KeyCode::KeyC) {
+    if keys.just_pressed(KeyCode::KeyC) && !settings_open.0 {
         rig.mode = match rig.mode {
             CamMode::Fixed => CamMode::Orbit,
             CamMode::Orbit => {
