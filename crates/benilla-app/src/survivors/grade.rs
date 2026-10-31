@@ -1,7 +1,7 @@
 //! The survivors grade: a light ReShade-style polish (CAS sharpening, vibrance, a soft S-curve, a
 //! touch of warmth) on the world camera, after the FFXGlow filter passes and before the HUD, which
-//! composites over it untouched. On by default in survivors; `G` toggles it in play, and
-//! `?grade=0` (`WOW_GRADE=0` native) starts it off.
+//! composites over it untouched. On by default in survivors; `G` toggles it in play (or the
+//! settings page), and `?grade=0` (`WOW_GRADE=0` native) starts it off.
 //!
 //! It is Bevy's [`FullscreenMaterial`]: one uniform, one fragment shader
 //! (`shaders/survivors_grade.wgsl`), and a node the plugin places between FFXGlow and the end of
@@ -61,14 +61,8 @@ impl FullscreenMaterial for Grade {
     }
 }
 
-/// Whether the grade is wanted; the camera's `amount` eases toward it.
-#[derive(Resource)]
-struct GradeOn(bool);
-
 pub(super) fn plugin(app: &mut App) {
-    let on = crate::webenv::var("WOW_GRADE").is_none_or(|v| v != "0");
     app.add_plugins(FullscreenMaterialPlugin::<Grade>::default())
-        .insert_resource(GradeOn(on))
         .add_systems(Update, (attach, toggle, drive).chain());
 }
 
@@ -81,15 +75,20 @@ fn attach(
     }
 }
 
-fn toggle(keys: Res<ButtonInput<KeyCode>>, mut on: ResMut<GradeOn>) {
+/// `G` flips the polish; the settings page holds the switch, so the choice is saved with it.
+fn toggle(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<super::settings::Settings>) {
     if keys.just_pressed(KeyCode::KeyG) {
-        on.0 = !on.0;
+        settings.polish = !settings.polish;
     }
 }
 
 /// Eases `amount` over a quarter second.
-fn drive(time: Res<Time<Real>>, on: Res<GradeOn>, mut grades: Query<&mut Grade>) {
-    let target = if on.0 { 1.0 } else { 0.0 };
+fn drive(
+    time: Res<Time<Real>>,
+    settings: Res<super::settings::Settings>,
+    mut grades: Query<&mut Grade>,
+) {
+    let target = if settings.polish { 1.0 } else { 0.0 };
     let k = 1.0 - (-time.delta_secs() * 12.0).exp();
     for mut g in &mut grades {
         g.amount += (target - g.amount) * k;

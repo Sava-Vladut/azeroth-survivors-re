@@ -335,6 +335,8 @@ pub(super) fn place_camera(
     time: Res<Time<Real>>,
     phase: Res<State<Phase>>,
     mut rig: ResMut<CamRig>,
+    settings: Res<super::settings::Settings>,
+    settings_open: Res<super::settings::SettingsOpen>,
     mut wheel: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -360,11 +362,17 @@ pub(super) fn place_camera(
     let focus = hero.single().map_or(player.pos, |t| t.translation);
     // Multiplicative, so a notch moves as far by eye close in as far out; all the way down to an
     // over-the-shoulder view.
+    // The settings page takes the wheel and the drag: a slider must not swing the camera.
+    let invert_zoom = if settings.invert_zoom { -1.0 } else { 1.0 };
     for w in wheel.read() {
+        if settings_open.0 {
+            continue;
+        }
         let notches = match w.unit {
             MouseScrollUnit::Line => w.y,
             MouseScrollUnit::Pixel => w.y * 0.02,
-        };
+        } * settings.zoom_speed
+            * invert_zoom;
         rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(ZOOM_MIN, ZOOM_MAX);
     }
     let (eye, look) = if *phase.get() == Phase::Menu {
@@ -376,10 +384,14 @@ pub(super) fn place_camera(
         )
     } else {
         // Unlocked, either mouse button drags the camera around the hero, as in WoW.
-        if rig.mode == CamMode::Orbit && mouse.any_pressed([MouseButton::Left, MouseButton::Right])
+        if rig.mode == CamMode::Orbit
+            && !settings_open.0
+            && mouse.any_pressed([MouseButton::Left, MouseButton::Right])
         {
-            rig.yaw -= motion.delta.x * ORBIT_RATE;
-            rig.pitch = (rig.pitch + motion.delta.y * ORBIT_RATE).clamp(PITCH_MIN, PITCH_MAX);
+            let rate = ORBIT_RATE * settings.camera_sens;
+            let tilt = if settings.invert_y { -1.0 } else { 1.0 };
+            rig.yaw -= motion.delta.x * rate;
+            rig.pitch = (rig.pitch + motion.delta.y * rate * tilt).clamp(PITCH_MIN, PITCH_MAX);
         }
         let (sy, cy) = rig.yaw.sin_cos();
         let (sp, cp) = rig.pitch.sin_cos();

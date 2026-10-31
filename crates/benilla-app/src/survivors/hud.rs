@@ -162,6 +162,7 @@ pub(super) struct TipBody;
 #[derive(Component, Clone, Copy, PartialEq)]
 pub(super) enum UiAction {
     Resume,
+    Settings,
     MainMenu,
     Quit,
 }
@@ -734,6 +735,7 @@ pub(super) fn setup_hud(
             root.spawn(centered(f, "Paused", 46.0, GOLD));
             for (label, action) in [
                 ("Resume", UiAction::Resume),
+                ("Settings", UiAction::Settings),
                 ("Abandon run", UiAction::MainMenu),
                 ("Quit game", UiAction::Quit),
             ] {
@@ -753,6 +755,9 @@ pub(super) fn setup_hud(
                 });
             }
         });
+
+    // --- Settings, over the pick screen and the pause screen. ---
+    super::settings::spawn_panel(&mut commands, f);
 
     // --- Results. ---
     commands
@@ -1026,6 +1031,7 @@ pub(super) fn buttons(
     >,
     mut next: ResMut<NextState<Phase>>,
     mut exit: MessageWriter<AppExit>,
+    mut settings_open: ResMut<super::settings::SettingsOpen>,
     phase: Res<State<Phase>>,
 ) {
     for (interaction, action, base, mut bg) in &mut presses {
@@ -1036,6 +1042,7 @@ pub(super) fn buttons(
                 bg.0 = BUTTON_HOT;
                 match (*action, *phase.get()) {
                     (UiAction::Resume, Phase::Paused) => next.set(Phase::Playing),
+                    (UiAction::Settings, Phase::Paused) => settings_open.0 = true,
                     (UiAction::MainMenu, Phase::Paused | Phase::GameOver) => next.set(Phase::Menu),
                     (UiAction::Quit, Phase::Paused | Phase::GameOver) => {
                         exit.write(AppExit::Success);
@@ -1053,7 +1060,15 @@ pub(super) fn keys(
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
+    mut settings_open: ResMut<super::settings::SettingsOpen>,
 ) {
+    // The settings page owns the keyboard while it shows: Esc closes it and nothing else acts.
+    if settings_open.0 {
+        if keys.just_pressed(KeyCode::Escape) {
+            settings_open.0 = false;
+        }
+        return;
+    }
     match phase.get() {
         Phase::Menu => {
             if keys.just_pressed(KeyCode::Enter) && start_run(&mut run, &mut selection) {
@@ -1490,9 +1505,10 @@ pub(super) fn fill_art(
 pub(super) fn apply_ui_scale(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut scale: ResMut<UiScale>,
+    settings: Res<super::settings::Settings>,
 ) {
     let Ok(window) = windows.single() else { return };
-    let want = window.height() / 768.0;
+    let want = window.height() / 768.0 * settings.ui_scale;
     if want > 0.0 && (scale.0 - want).abs() > 1e-4 {
         scale.0 = want;
     }
