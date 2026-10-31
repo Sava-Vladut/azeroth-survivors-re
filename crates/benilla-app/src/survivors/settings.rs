@@ -170,6 +170,7 @@ impl Settings {
         }
     }
 
+    #[cfg(test)]
     fn to_text(&self) -> String {
         self.to_text_with(self.polish)
     }
